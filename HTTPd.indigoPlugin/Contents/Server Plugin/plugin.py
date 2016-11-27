@@ -43,6 +43,16 @@ class AuthHandler(BaseHTTPRequestHandler):
         self.send_header("Content-type", "text/html")
         self.end_headers()
 
+    def do_POST(self):
+        self.logger = logging.getLogger("Plugin.AuthHandler")
+        self.logger.debug("AuthHandler: do_POST")
+
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+
+        auth_header = self.headers.getheader('Authorization')
+
     def do_GET(self):
         self.logger = logging.getLogger("Plugin.AuthHandler")
 
@@ -111,11 +121,11 @@ class Plugin(indigo.PluginBase):
         self.updateFrequency = float(self.pluginPrefs.get('updateFrequency', '24')) * 60.0 * 60.0
         self.next_update_check = time.time()
 
-        user = self.pluginPrefs.get('httpUser', 'guest')
+        user = self.pluginPrefs.get('httpUser', 'username')
         password = self.pluginPrefs.get('httpPassword', 'password')
         self.authKey = base64.b64encode(user + ":" + password)
 
-        self.port = int(self.pluginPrefs.get('httpPort', '8088'))
+        self.port = int(self.pluginPrefs.get('httpPort', '5555'))
 
         if "HTTPd" in indigo.variables.folders:
             myFolder = indigo.variables.folders["HTTPd"]
@@ -123,11 +133,18 @@ class Plugin(indigo.PluginBase):
             myFolder = indigo.variables.folder.create("HTTPd")
         self.pluginPrefs["folderId"] = myFolder.id
 
-        self.httpd = MyHTTPServer(("", self.port), AuthHandler)
-        self.httpd.timeout = 1.0
-        self.httpd.setKey(self.authKey)
-
         self.triggers = {}
+
+        self.logger.debug(u"Starting HTTP server on port %d" % self.port)
+        try:
+            self.httpd = MyHTTPServer(("", self.port), AuthHandler)
+        except:
+            self.logger.error(u"Unable to open port %d for HHTTP Server" % self.port)
+            self.httpd = None
+        else:
+            self.httpd.timeout = 1.0
+            self.httpd.setKey(self.authKey)
+
 
 
     def shutdown(self):

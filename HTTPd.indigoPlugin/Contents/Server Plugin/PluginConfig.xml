@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <PluginConfig>
 	<SupportURL>http://forums.indigodomo.com/viewforum.php?f=216</SupportURL>
-	<Field id="httpPort" type="textfield"  defaultValue="8088">
+	<Field id="httpPort" type="textfield"  defaultValue="5555">
 		<Label>Port Number:</Label>
 	</Field>
-	<Field id="httpUser" type="textfield" defaultValue="guest">
+	<Field id="httpUser" type="textfield" defaultValue="username">
 		<Label>Username:</Label>
 	</Field>
 	<Field id="httpPassword" type="textfield" defaultValue="password">
