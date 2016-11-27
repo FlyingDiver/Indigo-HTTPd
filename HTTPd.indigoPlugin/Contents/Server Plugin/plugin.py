@@ -25,13 +25,20 @@ def updateVar(name, value, folder):
 class MyHTTPServer(HTTPServer):
 
     def setKey(self, authKey):
-        self.logger = logging.getLogger("Plugin.MyHTTPServer")
-        self.auth_key = authKey
+        self.authKey = authKey
 
 
 class AuthHandler(BaseHTTPRequestHandler):
 
+#    def log_message(self, format, *args):
+#        self.logger = logging.getLogger("Plugin.AuthHandler")
+#        self.logger.debug("AuthHandler Message: " + format % args)
+#        return
+
     def do_HEAD(self):
+        self.logger = logging.getLogger("Plugin.AuthHandler")
+        self.logger.debug('AuthHandler: do_HEAD')
+
         self.send_response(200)
         self.send_header("Content-type", "text/html")
         self.end_headers()
@@ -46,29 +53,35 @@ class AuthHandler(BaseHTTPRequestHandler):
         auth_header = self.headers.getheader('Authorization')
 
         if auth_header == None:
-            self.logger.debug('AuthHandler: do_GET with no auth header received')
-            self.wfile.write("<html><head><title>Indigo HTTPd Plugin</title></head>")
-            self.wfile.write("<body><p>Basic Authentication Required</p>")
-            self.wfile.write("</body></html>")
+            self.logger.debug("AuthHandler: do_GET with no Authorization header")
+            self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
+            self.wfile.write("\n<p>Basic Authentication Required</p>")
+            self.wfile.write("\n</body>\n</html>\n")
 
-        elif auth_header == ('Basic ' + self.server.auth_key):
+        elif auth_header == ('Basic ' + self.server.authKey):
             self.logger.debug(u"AuthHandler: authorized do_GET: %s" % self.path)
-            self.wfile.write("<html><head><title>Indigo HTTPd Plugin</title></head>")
+            self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
             request = urlparse(self.path)
+
             if request.path == "/setvar":
                 query = parse_qs(request.query)
                 for key in query:
                     self.logger.debug(u"AuthHandler: setting variable httpd_%s to %s" % (key, query[key][0]))
                     updateVar("httpd_"+key, query[key][0], indigo.activePlugin.pluginPrefs["folderId"])
+                    self.wfile.write("\n<p>Updated variable %s</p>" % key)
+
+                indigo.activePlugin.triggerCheck()
+
             else:
                 self.logger.debug(u"AuthHandler: do_GET with unknown request: %s" % self.request)
-            self.wfile.write("</body></html>")
+
+            self.wfile.write("\n</body>\n</html>\n")
 
         else:
-            self.logger.debug(u"AuthHandler: do_GET with invalid Authorization header: %s" % self.path)
-            self.wfile.write("<html><head><title>Indigo HTTPd Plugin</title></head>")
-            self.wfile.write("<body><p>Invalid Authentication</p>")
-            self.wfile.write("</body></html>")
+            self.logger.debug(u"AuthHandler: do_GET with invalid Authorization header")
+            self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
+            self.wfile.write("\n<p>Invalid Authentication</p>")
+            self.wfile.write("\n</body>\n</html>\n")
 
 
 
@@ -100,19 +113,21 @@ class Plugin(indigo.PluginBase):
 
         user = self.pluginPrefs.get('httpUser', 'guest')
         password = self.pluginPrefs.get('httpPassword', 'password')
-        self.auth_key = base64.b64encode(user + ":" + password)
+        self.authKey = base64.b64encode(user + ":" + password)
 
         self.port = int(self.pluginPrefs.get('httpPort', '8088'))
 
         if "HTTPd" in indigo.variables.folders:
-		    myFolder = indigo.variables.folders["HTTPd"]
+            myFolder = indigo.variables.folders["HTTPd"]
         else:
             myFolder = indigo.variables.folder.create("HTTPd")
         self.pluginPrefs["folderId"] = myFolder.id
 
         self.httpd = MyHTTPServer(("", self.port), AuthHandler)
         self.httpd.timeout = 1.0
-        self.httpd.setKey(self.auth_key)
+        self.httpd.setKey(self.authKey)
+
+        self.triggers = {}
 
 
     def shutdown(self):
