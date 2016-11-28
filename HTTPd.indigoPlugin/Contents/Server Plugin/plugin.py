@@ -30,31 +30,20 @@ class MyHTTPServer(HTTPServer):
 
 class AuthHandler(BaseHTTPRequestHandler):
 
-#    def log_message(self, format, *args):
-#        self.logger = logging.getLogger("Plugin.AuthHandler")
-#        self.logger.debug("AuthHandler Message: " + format % args)
-#        return
-
-    def do_HEAD(self):
-        self.logger = logging.getLogger("Plugin.AuthHandler")
-        self.logger.debug('AuthHandler: do_HEAD')
-
-        self.send_response(200)
-        self.send_header("Content-type", "text/html")
-        self.end_headers()
-
     def do_POST(self):
         self.logger = logging.getLogger("Plugin.AuthHandler")
-        self.logger.debug("AuthHandler: do_POST")
+        client_host, client_port = self.client_address
+        self.logger.debug("AuthHandler: POST from %s:%s to %s" % (str(client_host), str(client_port), self.path))
 
         self.send_response(200)
         self.send_header("Content-type", "text/html")
         self.end_headers()
 
-        auth_header = self.headers.getheader('Authorization')
 
     def do_GET(self):
         self.logger = logging.getLogger("Plugin.AuthHandler")
+        client_host, client_port = self.client_address
+        self.logger.debug("AuthHandler: GET from %s:%s for %s" % (str(client_host), str(client_port), self.path))
 
         self.send_response(200)
         self.send_header("Content-type", "text/html")
@@ -63,13 +52,13 @@ class AuthHandler(BaseHTTPRequestHandler):
         auth_header = self.headers.getheader('Authorization')
 
         if auth_header == None:
-            self.logger.debug("AuthHandler: do_GET with no Authorization header")
+            self.logger.debug("AuthHandler: Request has no Authorization header")
             self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
             self.wfile.write("\n<p>Basic Authentication Required</p>")
             self.wfile.write("\n</body>\n</html>\n")
 
         elif auth_header == ('Basic ' + self.server.authKey):
-            self.logger.debug(u"AuthHandler: authorized do_GET: %s" % self.path)
+            self.logger.debug(u"AuthHandler: Request has correct Authorization header")
             self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
             request = urlparse(self.path)
 
@@ -83,12 +72,12 @@ class AuthHandler(BaseHTTPRequestHandler):
                 indigo.activePlugin.triggerCheck()
 
             else:
-                self.logger.debug(u"AuthHandler: do_GET with unknown request: %s" % self.request)
+                self.logger.debug(u"AuthHandler: Unknown request: %s" % self.request)
 
             self.wfile.write("\n</body>\n</html>\n")
 
         else:
-            self.logger.debug(u"AuthHandler: do_GET with invalid Authorization header")
+            self.logger.debug(u"AuthHandler: Request with invalid Authorization header")
             self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
             self.wfile.write("\n<p>Invalid Authentication</p>")
             self.wfile.write("\n</body>\n</html>\n")
