@@ -79,9 +79,20 @@ class AuthHandler(BaseHTTPRequestHandler):
             if request.path == "/setvar":
                 query = parse_qs(request.query)
                 for key in query:
-                    self.logger.debug(u"AuthHandler: setting variable httpd_%s to %s" % (key, query[key][0]))
-                    updateVar("httpd_"+key, query[key][0], indigo.activePlugin.pluginPrefs["folderId"])
-                    self.wfile.write("\n<p>Updated variable %s</p>" % key)
+                    value = query[key][0]
+                    self.logger.debug(u"AuthHandler: setting variable httpd_%s to '%s'" % (key, value))
+                    updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
+                    self.wfile.write("\n<p>Updated variable httpd_%s to '%s'</p>" % (key, value))
+
+                indigo.activePlugin.triggerCheck()
+
+            elif request.path == "/stripvar":
+                query = parse_qs(request.query)
+                for key in query:
+                    value = query[key][0].strip()
+                    self.logger.debug(u"AuthHandler: setting variable httpd_%s to '%s'" % (key, value))
+                    updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
+                    self.wfile.write("\n<p>Updated variable httpd_%s to '%s'</p>" % (key, value))
 
                 indigo.activePlugin.triggerCheck()
 
