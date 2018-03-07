@@ -8,8 +8,6 @@ import os
 import base64
 import logging
 
-from ghpu import GitHubPluginUpdater
-
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 from urlparse import urlparse, parse_qs
 
@@ -131,10 +129,6 @@ class Plugin(indigo.PluginBase):
     def startup(self):
         indigo.server.log(u"Starting HTTPd")
 
-        self.updater = GitHubPluginUpdater(self)
-        self.updateFrequency = float(self.pluginPrefs.get('updateFrequency', '24')) * 60.0 * 60.0
-        self.next_update_check = time.time()
-
         user = self.pluginPrefs.get('httpUser', 'username')
         password = self.pluginPrefs.get('httpPassword', 'password')
         self.authKey = base64.b64encode(user + ":" + password)
@@ -172,10 +166,6 @@ class Plugin(indigo.PluginBase):
 
                 self.httpd.handle_request()
 
-                if (self.updateFrequency > 0.0) and (time.time() > self.next_update_check):
-                    self.next_update_check = time.time() + self.updateFrequency
-                    self.updater.checkForUpdate()
-
                 self.sleep(0.1)
 
         except self.StopThread:
@@ -206,10 +196,6 @@ class Plugin(indigo.PluginBase):
         self.logger.debug(u"validatePrefsConfigUi called")
         errorDict = indigo.Dict()
 
-        updateFrequency = int(valuesDict['updateFrequency'])
-        if (updateFrequency < 0) or (updateFrequency > 24):
-            errorDict['updateFrequency'] = u"Update frequency is invalid - enter a valid number (between 0 and 24)"
-
         httpPort = int(valuesDict['httpPort'])
         if httpPort < 1024:
             errorDict['httpPort'] = u"HTTP Port Number invalid"
@@ -228,21 +214,8 @@ class Plugin(indigo.PluginBase):
             self.indigo_log_handler.setLevel(self.logLevel)
             self.logger.debug(u"logLevel = " + str(self.logLevel))
 
-            self.updateFrequency = float(self.pluginPrefs.get('updateFrequency', "24")) * 60.0 * 60.0
-            self.logger.debug(u"updateFrequency = " + str(self.updateFrequency))
-            self.next_update_check = time.time()
-
 
     ########################################
     # Menu Methods
     ########################################
-
-    def checkForUpdates(self):
-        self.updater.checkForUpdate()
-
-    def updatePlugin(self):
-        self.updater.update()
-
-    def forceUpdate(self):
-        self.updater.update(currentVersion='0.0.0')
 

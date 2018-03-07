@@ -10,13 +10,6 @@
 	<Field id="httpPassword" type="textfield" defaultValue="password">
 		<Label>Password:</Label>
 	</Field>
-	<Field id="sep0" type="separator"/>
-	<Field id="updateFrequency" type="textfield" defaultValue="24">
-		<Label>Check for plugin update frequency (hours):</Label>
-	</Field>
-	<Field id="messageNote" type="label" fontSize="small" fontColor="darkgray">
-		<Label>The plugin will not check for updates if the frequency is set to zero.</Label>
-	</Field>
     <Field id="sep2" type="separator"/>
     <Field id="logLevel" type="menu" defaultValue="20">
         <Label>Event Logging Level:</Label>
