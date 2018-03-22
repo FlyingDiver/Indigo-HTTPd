@@ -2,14 +2,12 @@
 # -*- coding: utf-8 -*-
 ####################
 
-import sys
-import time
-import os
 import base64
 import logging
 
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 from urlparse import urlparse, parse_qs
+import ssl
 
 ########################################
 
@@ -121,7 +119,8 @@ class Plugin(indigo.PluginBase):
         password = self.pluginPrefs.get('httpPassword', 'password')
         self.authKey = base64.b64encode(user + ":" + password)
 
-        self.port = int(self.pluginPrefs.get('httpPort', '5555'))
+        self.httpPort = int(self.pluginPrefs.get('httpPort', '5555'))
+        self.httpsPort = int(self.pluginPrefs.get('httpsPort', '5556'))
 
         if "HTTPd" in indigo.variables.folders:
             myFolder = indigo.variables.folders["HTTPd"]
@@ -131,16 +130,32 @@ class Plugin(indigo.PluginBase):
 
         self.triggers = {}
 
-        self.logger.debug(u"Starting HTTP server on port %d" % self.port)
-        try:
-            self.httpd = MyHTTPServer(("", self.port), AuthHandler)
-        except:
-            self.logger.error(u"Unable to open port %d for HHTTP Server" % self.port)
-            self.httpd = None
-        else:
+        if self.httpPort > 0:
+            self.logger.debug(u"Starting HTTP server on port %d" % self.httpPort)
+            try:
+                self.httpd = MyHTTPServer(("", self.httpPort), AuthHandler)
+            except:
+                self.logger.error(u"Unable to open port %d for HHTTP Server" % self.httpPort)
+                self.httpd = None
+                return
+            
             self.httpd.timeout = 1.0
             self.httpd.setKey(self.authKey)
-
+            
+        if self.httpsPort > 0:
+            self.logger.debug(u"Starting HTTPS server on port %d" % self.httpsPort)
+            try:
+                self.httpsd = MyHTTPServer(("", self.httpsPort), AuthHandler)
+            except:
+                self.logger.error(u"Unable to open port %d for HTTPS Server" % self.httpsPort)
+                self.httpsd = None
+                return
+            
+            self.httpsd.timeout = 1.0
+            self.httpsd.setKey(self.authKey)            
+            certfile = indigo.server.getInstallFolderPath() + '/httpd_server.pem'
+            self.logger.debug(u"Using certfile = %s" % certfile)
+            self.httpsd.socket = ssl.wrap_socket(self.httpsd.socket, certfile=certfile, server_side=True)
 
 
     def shutdown(self):
@@ -153,6 +168,7 @@ class Plugin(indigo.PluginBase):
             while True:
 
                 self.httpd.handle_request()
+                self.httpsd.handle_request()
 
                 self.sleep(0.1)
 

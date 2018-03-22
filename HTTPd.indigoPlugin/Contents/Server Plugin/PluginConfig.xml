@@ -2,8 +2,14 @@
 <PluginConfig>
 	<SupportURL>http://forums.indigodomo.com/viewforum.php?f=216</SupportURL>
 	<Field id="httpPort" type="textfield"  defaultValue="5555">
-		<Label>Port Number:</Label>
+		<Label>HTTP Port Number:</Label>
 	</Field>
+	<Field id="httpsPort" type="textfield"  defaultValue="5556">
+		<Label>HTTPS Port Number:</Label>
+	</Field>
+    <Field id="portNote" type="label" fontSize="small" fontColor="darkgray">
+        <Label>Enter a port number to enable that protocol.  A blank field will disable that protocol.  The port numbers cannot be the same. See the plugin Wiki on GitHub for additional steps required to use the HTTPS protocol.</Label>
+    </Field>
 	<Field id="httpUser" type="textfield" defaultValue="username">
 		<Label>Username:</Label>
 	</Field>
