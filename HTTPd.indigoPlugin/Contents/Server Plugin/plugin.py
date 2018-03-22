@@ -101,6 +101,8 @@ class AuthHandler(BaseHTTPRequestHandler):
 
         else:
             self.logger.debug(u"AuthHandler: Request with invalid Authorization header")
+            self.logger.debug(u"Theirs: '%s' -> '%s'" % (auth_header, base64.b64decode(auth_header[6:])))
+            self.logger.debug(u"Ours:   '%s' -> '%s'" % ('Basic ' + self.server.authKey, base64.b64decode(self.server.authKey)))
             self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
             self.wfile.write("\n<p>Invalid Authentication</p>")
             self.wfile.write("\n</body>\n</html>\n")
@@ -213,6 +215,9 @@ class Plugin(indigo.PluginBase):
                 self.logLevel = logging.INFO
             self.indigo_log_handler.setLevel(self.logLevel)
             self.logger.debug(u"logLevel = " + str(self.logLevel))
+
+            self.authKey = base64.b64encode(valuesDict[u"httpUser"] + ":" + valuesDict[u"httpPassword"])
+            self.httpd.setKey(self.authKey)
 
 
     ########################################
