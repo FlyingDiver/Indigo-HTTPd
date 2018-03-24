@@ -4,11 +4,11 @@
 	<Field id="httpPort" type="textfield"  defaultValue="5555">
 		<Label>HTTP Port Number:</Label>
 	</Field>
-	<Field id="httpsPort" type="textfield"  defaultValue="5556">
+	<Field id="httpsPort" type="textfield"  defaultValue="0">
 		<Label>HTTPS Port Number:</Label>
 	</Field>
     <Field id="portNote" type="label" fontSize="small" fontColor="darkgray">
-        <Label>Enter a port number to enable that protocol.  A blank field will disable that protocol.  The port numbers cannot be the same. See the plugin Wiki on GitHub for additional steps required to use the HTTPS protocol.</Label>
+        <Label>Enter a port number to enable that protocol.  Entering zero for the port number will disable that protocol.  The port numbers cannot be the same. See the plugin Wiki on GitHub for additional steps required to use the HTTPS protocol.</Label>
     </Field>
 	<Field id="httpUser" type="textfield" defaultValue="username">
 		<Label>Username:</Label>

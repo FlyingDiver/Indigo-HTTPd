@@ -8,6 +8,7 @@ import logging
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 from urlparse import urlparse, parse_qs
 import ssl
+import os.path
 
 ########################################
 
@@ -118,9 +119,8 @@ class Plugin(indigo.PluginBase):
         user = self.pluginPrefs.get('httpUser', 'username')
         password = self.pluginPrefs.get('httpPassword', 'password')
         self.authKey = base64.b64encode(user + ":" + password)
-
         self.httpPort = int(self.pluginPrefs.get('httpPort', '5555'))
-        self.httpsPort = int(self.pluginPrefs.get('httpsPort', '5556'))
+        self.httpsPort = int(self.pluginPrefs.get('httpsPort', '0'))
 
         if "HTTPd" in indigo.variables.folders:
             myFolder = indigo.variables.folders["HTTPd"]
@@ -130,36 +130,43 @@ class Plugin(indigo.PluginBase):
 
         self.triggers = {}
 
-        if self.httpPort > 0:
-            self.logger.debug(u"Starting HTTP server on port %d" % self.httpPort)
-            try:
-                self.httpd = MyHTTPServer(("", self.httpPort), AuthHandler)
-            except:
-                self.logger.error(u"Unable to open port %d for HHTTP Server" % self.httpPort)
-                self.httpd = None
-                return
-            
-            self.httpd.timeout = 1.0
-            self.httpd.setKey(self.authKey)
-            
-        if self.httpsPort > 0:
-            self.logger.debug(u"Starting HTTPS server on port %d" % self.httpsPort)
-            try:
-                self.httpsd = MyHTTPServer(("", self.httpsPort), AuthHandler)
-            except:
-                self.logger.error(u"Unable to open port %d for HTTPS Server" % self.httpsPort)
-                self.httpsd = None
-                return
-            
-            self.httpsd.timeout = 1.0
-            self.httpsd.setKey(self.authKey)            
-            certfile = indigo.server.getInstallFolderPath() + '/httpd_server.pem'
-            self.logger.debug(u"Using certfile = %s" % certfile)
-            self.httpsd.socket = ssl.wrap_socket(self.httpsd.socket, certfile=certfile, server_side=True)
-
+        self.httpd  = self.start_server(self.httpPort)
+        self.httpsd = self.start_server(self.httpsPort, https=True)
+        
 
     def shutdown(self):
         indigo.server.log(u"Shutting down HTTPd")
+
+    def start_server(self, port, https=False):
+    
+        server = None
+
+        if https:        
+            certfile = indigo.server.getInstallFolderPath() + '/httpd_server.pem'
+            if not os.path.isfile(certfile):
+                self.logger.error(u"Certificate file missing, unable to start HTTPS server")
+                return None
+           
+        if port > 0:
+            try:
+                server = MyHTTPServer(("", port), AuthHandler)
+            except:
+                self.logger.error(u"Unable to open port %d for HTTP Server" % port)
+                return None
+            
+            server.timeout = 1.0
+            server.setKey(self.authKey)
+        else:
+            return None
+            
+        if https:
+            server.socket = ssl.wrap_socket(server.socket, certfile=certfile, server_side=True)
+            self.logger.debug(u"Started HTTPS server on port %d" % port)
+       
+        else:
+            self.logger.debug(u"Started HTTP server on port %d" % port)
+            
+        return server
 
 
     def runConcurrentThread(self):
@@ -167,8 +174,10 @@ class Plugin(indigo.PluginBase):
         try:
             while True:
 
-                self.httpd.handle_request()
-                self.httpsd.handle_request()
+                if self.httpd:
+                    self.httpd.handle_request()
+                if self.httpsd:
+                    self.httpsd.handle_request()
 
                 self.sleep(0.1)
 
@@ -200,9 +209,21 @@ class Plugin(indigo.PluginBase):
         self.logger.debug(u"validatePrefsConfigUi called")
         errorDict = indigo.Dict()
 
-        httpPort = int(valuesDict['httpPort'])
-        if httpPort < 1024:
+        try:
+            port = int(valuesDict['httpPort'])
+        except:
             errorDict['httpPort'] = u"HTTP Port Number invalid"
+        else:
+            if 0 < port < 1024:
+                errorDict['httpPort'] = u"HTTP Port Number invalid"
+
+        try:
+            port = int(valuesDict['httpsPort'])
+        except:
+            errorDict['httpsPort'] = u"HTTPS Port Number invalid"
+        else:
+            if 0 < port < 1024:
+                errorDict['httpsPort'] = u"HTTPS Port Number invalid"
 
         if len(errorDict) > 0:
             return (False, valuesDict, errorDict)
@@ -219,7 +240,20 @@ class Plugin(indigo.PluginBase):
             self.logger.debug(u"logLevel = " + str(self.logLevel))
 
             self.authKey = base64.b64encode(valuesDict[u"httpUser"] + ":" + valuesDict[u"httpPassword"])
-            self.httpd.setKey(self.authKey)
+            
+            if valuesDict['httpPort'] == '0':
+                self.httpd = None
+                self.httpPort = 0
+            elif int(valuesDict['httpPort']) != self.httpPort:
+                self.httpPort = int(valuesDict['httpPort'])
+                self.httpd = self.start_server(self.httpPort)
+            
+            if valuesDict['httpsPort'] == '0':
+                self.httpsd = None
+                self.httpsPort = 0
+            elif int(valuesDict['httpsPort']) != self.httpsPort:
+                self.httpsPort = int(valuesDict['httpsPort'])
+                self.httpsd = self.start_server(self.httpsPort, https=True)
 
 
     ########################################
