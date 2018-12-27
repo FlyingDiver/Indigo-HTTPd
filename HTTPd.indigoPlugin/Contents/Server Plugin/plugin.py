@@ -32,9 +32,61 @@ class AuthHandler(BaseHTTPRequestHandler):
         client_host, client_port = self.client_address
         self.logger.debug("AuthHandler: POST from %s:%s to %s" % (str(client_host), str(client_port), self.path))
 
-        self.send_response(200)
-        self.send_header("Content-type", "text/html")
-        self.end_headers()
+        auth_header = self.headers.getheader('Authorization')
+
+        if auth_header == None:
+            self.logger.debug("AuthHandler: Request has no Authorization header")
+
+            self.send_response(401)
+            self.send_header('WWW-Authenticate', 'Basic realm="My Realm"')
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
+            self.wfile.write("\n<p>Basic Authentication Required</p>")
+            self.wfile.write("\n</body>\n</html>\n")
+
+        elif auth_header == ('Basic ' + self.server.authKey):
+            self.logger.debug(u"AuthHandler: Request has correct Authorization header")
+
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            
+            self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
+            request = urlparse(self.path)
+
+            if request.path == "/setvar":
+                query = parse_qs(request.query)
+                for key in query:
+                    value = query[key][0]
+                    self.logger.debug(u"AuthHandler: setting variable httpd_%s to '%s'" % (key, value))
+                    updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
+                    self.wfile.write("\n<p>Updated variable httpd_%s to '%s'</p>" % (key, value))
+
+            else:
+                self.logger.debug(u"AuthHandler: Unknown request: %s" % request.path)
+                self.wfile.write("\n<p>Unknown request: {}".format(request.path))
+
+            self.wfile.write("\n</body>\n</html>\n")
+
+            payload = self.rfile.read(int(self.headers['Content-Length']))
+            indigo.server.broadcastToSubscribers(u"httpd_post_payload", payload)
+            self.logger.debug("POST Payload = {}".format(payload))
+            
+            indigo.activePlugin.triggerCheck()
+
+        else:
+            self.logger.debug(u"AuthHandler: Request with invalid Authorization header")
+
+            self.send_response(401)
+            self.send_header('WWW-Authenticate', 'Basic realm="My Realm"')
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.logger.debug(u"Theirs: '%s' -> '%s'" % (auth_header, base64.b64decode(auth_header[6:])))
+            self.logger.debug(u"Ours:   '%s' -> '%s'" % ('Basic ' + self.server.authKey, base64.b64decode(self.server.authKey)))
+            self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
+            self.wfile.write("\n<p>Invalid Authentication</p>")
+            self.wfile.write("\n</body>\n</html>\n")
 
 
     def do_GET(self):
@@ -72,22 +124,13 @@ class AuthHandler(BaseHTTPRequestHandler):
                     updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
                     self.wfile.write("\n<p>Updated variable httpd_%s to '%s'</p>" % (key, value))
 
-                indigo.activePlugin.triggerCheck()
-
-            elif request.path == "/stripvar":
-                query = parse_qs(request.query)
-                for key in query:
-                    value = query[key][0].strip()
-                    self.logger.debug(u"AuthHandler: setting variable httpd_%s to '%s'" % (key, value))
-                    updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
-                    self.wfile.write("\n<p>Updated variable httpd_%s to '%s'</p>" % (key, value))
-
-                indigo.activePlugin.triggerCheck()
-
             else:
-                self.logger.debug(u"AuthHandler: Unknown request: %s" % self.request)
+                self.logger.debug(u"AuthHandler: Unknown request: %s" % request.path)
+                self.wfile.write("\n<p>Unknown request: {}".format(request.path))
 
             self.wfile.write("\n</body>\n</html>\n")
+
+            indigo.activePlugin.triggerCheck()
 
         else:
             self.logger.debug(u"AuthHandler: Request with invalid Authorization header")
@@ -99,7 +142,7 @@ class AuthHandler(BaseHTTPRequestHandler):
             self.logger.debug(u"Theirs: '%s' -> '%s'" % (auth_header, base64.b64decode(auth_header[6:])))
             self.logger.debug(u"Ours:   '%s' -> '%s'" % ('Basic ' + self.server.authKey, base64.b64decode(self.server.authKey)))
             self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
-            self.wfile.write("\n<p>Invalid Authentication</p>")
+            self.wfile.write("\n<p>Invalid Authentication Header</p>")
             self.wfile.write("\n</body>\n</html>\n")
 
 
