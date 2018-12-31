@@ -117,6 +117,17 @@ class AuthHandler(BaseHTTPRequestHandler):
                     updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
                     msg.append("Updated variable httpd_{} to '{}'".format(key, value))
 
+            elif request.path == "/broadcast":
+                broadcastDict = {}
+                query = parse_qs(request.query)
+                for key in query:
+                    value = query[key][0]
+                    broadcastDict[key] = value
+                    msgs.append("Setting dict entry '{}' to '{}'".format(key, value))
+                    
+                indigo.server.broadcastToSubscribers(u"httpd_post_broadcast", broadcastDict)
+                self.logger.debug("GET Broadcast = {}".format(broadcastDict))
+            
             else:
                 self.logger.debug(u"AuthHandler: Unknown request: %s" % request.path)
                 msgs = ["\n<p>Unknown request: {}".format(request.path)]
