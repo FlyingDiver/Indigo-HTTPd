@@ -5,11 +5,13 @@
 import base64
 import logging
 import json
+import ssl
+import os.path
 
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 from urlparse import urlparse, parse_qs
-import ssl
-import os.path
+
+import httpauth
 
 ########################################
 
