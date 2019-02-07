@@ -16,6 +16,9 @@
 	<Field id="httpPassword" type="textfield" defaultValue="password">
 		<Label>Password:</Label>
 	</Field>
+    <Field type="checkbox" id="digestRequired" defaultValue="false">
+        <Label>Require Digest Authentication:</Label>
+    </Field>            
     <Field id="sep2" type="separator"/>
     <Field id="logLevel" type="menu" defaultValue="20">
         <Label>Event Logging Level:</Label>

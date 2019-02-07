@@ -7,11 +7,14 @@ import logging
 import json
 import ssl
 import os.path
+import hashlib
+import time
 
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 from urlparse import urlparse, parse_qs
+import urllib2
 
-import httpauth
+REALM = "HTTPd Plugin"
 
 ########################################
 
@@ -24,111 +27,158 @@ def updateVar(name, value, folder):
 ########################################
 class MyHTTPServer(HTTPServer):
 
-    def setKey(self, authKey):
-        self.authKey = authKey
+    def setUser(self, user):
+        self.user = user
+
+    def setPassword(self, password):
+        self.password = password
+
+    def setDigestRequired(self, digestRequired):
+        self.digestRequired = digestRequired
 
 
 class RequestHandler(BaseHTTPRequestHandler):
 
-    def send_reply(self, code, msgs):
+    def send_reply(self, code):
+
+        nonce = hashlib.md5("{}:{}".format(time.time(), REALM)).hexdigest() 
+        if self.server.digestRequired:
+            authHeader = 'Digest realm="{}", nonce="{}", algorithm="MD5", qop="auth"'.format(REALM, nonce)
+        else:
+            authHeader = 'Digest realm="{}", nonce="{}", algorithm="MD5", qop="auth" Basic realm="{}"'.format(REALM, nonce, REALM)
+            
         self.send_response(code)
-        self.send_header('WWW-Authenticate', 'Basic realm="My Realm"')
+        self.send_header('WWW-Authenticate', authHeader)
         self.send_header("Content-type", "text/html")
         self.end_headers()
-        self.wfile.write("<html>\n<head><title>Indigo HTTPd Plugin</title></head>\n<body>")
-        if len(msgs) > 0:
-            for m in msgs:
-                self.wfile.write("\n<p>{}</p>".format(m))
+    
+    def authorized(self, auth_header, method):
+
+        auth_scheme, auth_params  = auth_header.split(" ", 1)
+        auth_scheme = auth_scheme.lower()
+        if auth_scheme == 'basic':
+            username, password = base64.decodestring(auth_params).split (":", 1)
+            auth_map = {"username": username, "password": password}
+        elif auth_scheme == 'digest':
+            # Convert the auth params to a dict
+            items = urllib2.parse_http_list(auth_params)
+            auth_map = urllib2.parse_keqv_list(items)
         else:
-            self.wfile.write("\n<p></p>".format(m))        
-        self.wfile.write("\n</body>\n</html>\n")
-    
-    
+            self.logger.debug(u"RequestHandler: Invalid authentication scheme")
+            return False
+                
+        self.logger.debug("RequestHandler: auth_map = {}".format(auth_map))
+            
+        # check username
+        if auth_map["username"] != self.server.user:
+            self.logger.debug("RequestHandler: Username mismatch")
+            return False
+                
+        if auth_scheme == "basic":
+            if self.server.digestRequired:
+                self.logger.debug(u"RequestHandler: {} Authorization not allowed".format(auth_scheme).capitalize())
+                return False
+                
+            if auth_map["password"] == self.server.password:
+                self.logger.debug(u"RequestHandler: {} Authorization valid".format(auth_scheme).capitalize())
+                return True
+            else:
+                self.logger.debug(u"RequestHandler: {} Authorization failed".format(auth_scheme).capitalize())
+                return False
+ 
+        elif auth_scheme == "digest":
+
+            h1 = hashlib.md5(self.server.user + ":" + REALM + ":" + self.server.password).hexdigest()
+            h2 = hashlib.md5(method + ":" + auth_map["uri"]).hexdigest()
+            rs = h1 + ":" + auth_map["nonce"] + ":" + auth_map["nc"] + ":" + auth_map["cnonce"] + ":" + auth_map["qop"] + ":" + h2
+            if hashlib.md5(rs).hexdigest() == auth_map["response"]:
+                self.logger.debug(u"RequestHandler: {} Authorization valid".format(auth_scheme).capitalize())
+                return True
+            else:
+                self.logger.debug(u"RequestHandler: {} Authorization failed".format(auth_scheme).capitalize())
+                return False
+
+        else:
+            self.logger.debug(u"RequestHandler: {} Authorization invalid".format(auth_scheme).capitalize())
+            return False
+
+
     def do_POST(self):
         self.logger = logging.getLogger("Plugin.RequestHandler")
         client_host, client_port = self.client_address
         self.logger.debug("RequestHandler: POST from %s:%s to %s" % (str(client_host), str(client_port), self.path))
-
-        auth_header = self.headers.getheader('Authorization')
-
+        
+        auth_header = self.headers.getheader('Authorization')        
         if auth_header == None:
             self.logger.debug("RequestHandler: Request has no Authorization header")
-            self.send_reply(401, ["Basic Authentication Required"])
+            self.send_reply(401)
+            return
+                            
+        if not self.authorized(auth_header, "POST"):
+            self.logger.debug(u"RequestHandler: Request failed {} Authorization".format(auth_scheme).capitalize())
+            self.send_reply(401)
+            return
+                       
+        request = urlparse(self.path)
 
-        elif auth_header == ('Basic ' + self.server.authKey):
-            self.logger.debug(u"RequestHandler: Request has correct Authorization header")
+        if request.path == "/setvar":
+            query = parse_qs(request.query)
+            for key in query:
+                value = query[key][0]
+                self.logger.debug(u"RequestHandler: setting variable httpd_%s to '%s'" % (key, value))
+                updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
 
-            msgs = []           
-            request = urlparse(self.path)
+        elif request.path == "/broadcast":
 
-            if request.path == "/setvar":
-                query = parse_qs(request.query)
-                for key in query:
-                    value = query[key][0]
-                    self.logger.debug(u"RequestHandler: setting variable httpd_%s to '%s'" % (key, value))
-                    updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
-                    msgs.append("Updated variable httpd_{} to '{}'".format(key, value))
-
-            elif request.path == "/broadcast":
-                self.logger.debug(u"RequestHandler: received broadcast request")
-                msgs.append("Handling broadcast request")
-
-                broadcastDict = {}
-                query = parse_qs(request.query)
-                for key in query:
-                    value = query[key][0]
-                    broadcastDict[key] = value
-                    msgs.append("Setting broadcastDict entry '{}' to '{}'".format(key, value))
-                
+            broadcastDict = {}
+            query = parse_qs(request.query)
+            for key in query:
+                value = query[key][0]
+                broadcastDict[key] = value
+            
+            # might not have any content
+            try:
                 payload = self.rfile.read(int(self.headers['Content-Length']))
                 broadcastDict["payload"] = payload
-                msgs.append("Setting dict entry 'payload' to '{}'".format(payload))
-                self.logger.debug("POST Broadcast = {}".format(broadcastDict, indent=4, sort_keys=True))
-                indigo.server.broadcastToSubscribers(u"httpd_post_broadcast", broadcastDict)
+            except:
+                pass
+
+            self.logger.debug("POST Broadcast = {}".format(broadcastDict, indent=4, sort_keys=True))
+            indigo.server.broadcastToSubscribers(u"httpd_post_broadcast", broadcastDict)
+        
+        elif request.path.startswith("/webhook"):
+
+            broadcastDict = {}
+            varsDict = {}
+            query = parse_qs(request.query)
+            for key in query:
+                value = query[key][0]
+                varsDict[key] = value
+            broadcastDict["vars"] = varsDict
+
+            broadcastDict["request"] = {"path" : request.path, "command" : self.command, "client" : client_host}
+            broadcastDict["request"]["headers"] = {key:value for (key,value) in self.headers.items()}
             
-            elif request.path.startswith("/webhook"):
-                self.logger.debug(u"RequestHandler: received webook request")
-                msgs.append("Handling webhook request")
-
-                broadcastDict = {}
-                varsDict = {}
-                query = parse_qs(request.query)
-                for key in query:
-                    value = query[key][0]
-                    varsDict[key] = value
-                    msgs.append("Setting varsDict entry '{}' to '{}'".format(key, value))
-                broadcastDict["vars"] = varsDict
-
-                broadcastDict["request"] = {"path" : request.path, "command" : self.command, "client" : client_host}
-                broadcastDict["request"]["headers"] = {key:value for (key,value) in self.headers.items()}
+            # might not have any content
+            try:
+                payload = self.rfile.read(int(self.headers['Content-Length']))
+                if self.headers['Content-Type'] == 'application/json':
+                    broadcastDict["payload"] = json.loads(payload)
+                else:
+                    broadcastDict["payload"] = payload
+            except:
+                pass
                 
-                # might not have any content
-                try:
-                    payload = self.rfile.read(int(self.headers['Content-Length']))
-                    if self.headers['Content-Type'] == 'application/json':
-                        broadcastDict["payload"] = json.loads(payload)
-                    else:
-                        broadcastDict["payload"] = payload
-                    msgs.append("Setting dict entry 'payload' to '{}'".format(payload))
-                except:
-                    pass
-                    
-                self.logger.debug("POST Broadcast = {}".format(broadcastDict, indent=4, sort_keys=True))
-                indigo.server.broadcastToSubscribers(u"httpd_"+request.path[1:], broadcastDict)
-            
-            else:
-                self.logger.debug(u"RequestHandler: Unknown request: %s" % request.path)
-                msgs = ["Unknown request: {}".format(request.path)]
-
-            self.send_reply(200, msgs)
-
-            indigo.activePlugin.triggerCheck()
-
+            self.logger.debug("POST Broadcast = {}".format(broadcastDict, indent=4, sort_keys=True))
+            indigo.server.broadcastToSubscribers(u"httpd_"+request.path[1:], broadcastDict)
+        
         else:
-            self.logger.debug(u"RequestHandler: Request with invalid Authorization header")
-            self.logger.debug(u"Theirs: '%s' -> '%s'" % (auth_header, base64.b64decode(auth_header[6:])))
-            self.logger.debug(u"Ours:   '%s' -> '%s'" % ('Basic ' + self.server.authKey, base64.b64decode(self.server.authKey)))
-            self.send_reply(401, ["Invalid Authentication"])
+            self.logger.debug(u"RequestHandler: Unknown request: %s" % request.path)
+
+        self.send_reply(200)
+
+        indigo.activePlugin.triggerCheck()
+
 
 
     def do_GET(self):
@@ -140,35 +190,28 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         if auth_header == None:
             self.logger.debug("RequestHandler: Request has no Authorization header")
-            self.send_reply(401, ["Basic Authentication Required"])
+            self.send_reply(401)
 
-        elif auth_header == ('Basic ' + self.server.authKey):
-            self.logger.debug(u"RequestHandler: Request has correct Authorization header")
+        if not self.authorized(auth_header, "GET"):
+            self.logger.debug(u"RequestHandler: Request failed {} Authorization".format(auth_scheme).capitalize())
+            self.send_reply(401)
+            return
 
-            msgs = []           
-            request = urlparse(self.path)
+        request = urlparse(self.path)
 
-            if request.path == "/setvar":
-                query = parse_qs(request.query)
-                for key in query:
-                    value = query[key][0]
-                    self.logger.debug(u"RequestHandler: setting variable httpd_%s to '%s'" % (key, value))
-                    updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
-                    msgs.append("Updated variable httpd_{} to '{}'".format(key, value))
-
-            else:
-                self.logger.debug(u"RequestHandler: Unknown request: %s" % request.path)
-                msgs = ["Unknown request: {}".format(request.path)]
-
-            self.send_reply(200, msgs)
-
-            indigo.activePlugin.triggerCheck()
+        if request.path == "/setvar":
+            query = parse_qs(request.query)
+            for key in query:
+                value = query[key][0]
+                self.logger.debug(u"RequestHandler: setting variable httpd_%s to '%s'" % (key, value))
+                updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
 
         else:
-            self.logger.debug(u"RequestHandler: Request with invalid Authorization header")
-            self.logger.debug(u"Theirs: '%s' -> '%s'" % (auth_header, base64.b64decode(auth_header[6:])))
-            self.logger.debug(u"Ours:   '%s' -> '%s'" % ('Basic ' + self.server.authKey, base64.b64decode(self.server.authKey)))
-            self.send_reply(401, ["Invalid Authentication"])
+            self.logger.debug(u"RequestHandler: Unknown request: %s" % request.path)
+
+        self.send_reply(200)
+
+        indigo.activePlugin.triggerCheck()
 
 
 class Plugin(indigo.PluginBase):
@@ -193,9 +236,6 @@ class Plugin(indigo.PluginBase):
     def startup(self):
         indigo.server.log(u"Starting HTTPd")
 
-        user = self.pluginPrefs.get('httpUser', 'username')
-        password = self.pluginPrefs.get('httpPassword', 'password')
-        self.authKey = base64.b64encode(user + ":" + password)
         self.httpPort = int(self.pluginPrefs.get('httpPort', '5555'))
         self.httpsPort = int(self.pluginPrefs.get('httpsPort', '0'))
 
@@ -210,14 +250,10 @@ class Plugin(indigo.PluginBase):
         self.httpd  = self.start_server(self.httpPort)
         self.httpsd = self.start_server(self.httpsPort, https=True)
         
-        indigo.server.subscribeToBroadcast("com.flyingdiver.indigoplugin.httpd", u"httpd_webhook", "webHook")
-        indigo.server.subscribeToBroadcast("com.flyingdiver.indigoplugin.httpd", u"httpd_webhook/httpd", "webHook")
-
+        
     def shutdown(self):
         indigo.server.log(u"Shutting down HTTPd")
 
-    def webHook(self, hookData):
-        self.logger.debug(u"webHook: hookData:\n{}".format(hookData))
 
     def start_server(self, port, https=False):
     
@@ -237,7 +273,9 @@ class Plugin(indigo.PluginBase):
                 return None
             
             server.timeout = 1.0
-            server.setKey(self.authKey)
+            server.setUser(self.pluginPrefs.get('httpUser', 'username'))
+            server.setPassword(self.pluginPrefs.get('httpPassword', 'password'))
+            server.setDigestRequired(self.pluginPrefs.get('digestRequired', False))
         else:
             return None
             
@@ -320,8 +358,6 @@ class Plugin(indigo.PluginBase):
                 self.logLevel = logging.INFO
             self.indigo_log_handler.setLevel(self.logLevel)
             self.logger.debug(u"logLevel = " + str(self.logLevel))
-
-            self.authKey = base64.b64encode(valuesDict[u"httpUser"] + ":" + valuesDict[u"httpPassword"])
             
             if valuesDict['httpPort'] == '0':
                 self.httpd = None
