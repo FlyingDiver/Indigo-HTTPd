@@ -19,6 +19,13 @@
     <Field type="checkbox" id="digestRequired" defaultValue="false">
         <Label>Require Digest Authentication:</Label>
     </Field>            
+    <Field id="sep1" type="separator"/>
+	<Field id="ddnsName" type="textfield"  defaultValue="">
+		<Label>DDNS Name:</Label>
+	</Field>
+    <Field id="ddnsNameNote" type="label" fontSize="small" fontColor="darkgray">
+        <Label>Optional.  Enter the DDNS name for your router/LAN. This will be used to construct Webhook URLs for plugins/scripts using the HTTPd plugin.</Label>
+    </Field>    
     <Field id="sep2" type="separator"/>
     <Field id="logLevel" type="menu" defaultValue="20">
         <Label>Event Logging Level:</Label>

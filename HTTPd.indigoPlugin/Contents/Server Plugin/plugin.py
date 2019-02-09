@@ -24,25 +24,12 @@ def updateVar(name, value, folder):
     else:
         indigo.variable.updateValue(name, value)
 
-########################################
-class MyHTTPServer(HTTPServer):
-
-    def setUser(self, user):
-        self.user = user
-
-    def setPassword(self, password):
-        self.password = password
-
-    def setDigestRequired(self, digestRequired):
-        self.digestRequired = digestRequired
-
-
 class RequestHandler(BaseHTTPRequestHandler):
 
     def send_reply(self, code):
 
         nonce = hashlib.md5("{}:{}".format(time.time(), REALM)).hexdigest() 
-        if self.server.digestRequired:
+        if indigo.activePlugin.pluginPrefs.get('digestRequired', None):
             authHeader = 'Digest realm="{}", nonce="{}", algorithm="MD5", qop="auth"'.format(REALM, nonce)
         else:
             authHeader = 'Digest realm="{}", nonce="{}", algorithm="MD5", qop="auth" Basic realm="{}"'.format(REALM, nonce, REALM)
@@ -52,34 +39,45 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-type", "text/html")
         self.end_headers()
     
-    def authorized(self, auth_header, method):
+    def authorized(self, method):
+
+        if len(indigo.activePlugin.pluginPrefs.get('httpPassword', None)) == 0:    # no authentication needed
+            self.logger.debug("RequestHandler: No password specified in plugin preferences, skipping authentication")
+            return True
+            
+        auth_header = self.headers.getheader('Authorization')        
+        if auth_header == None:
+            self.logger.debug("RequestHandler: Request has no Authorization header")
+            return False
 
         auth_scheme, auth_params  = auth_header.split(" ", 1)
         auth_scheme = auth_scheme.lower()
+        
         if auth_scheme == 'basic':
             username, password = base64.decodestring(auth_params).split (":", 1)
             auth_map = {"username": username, "password": password}
-        elif auth_scheme == 'digest':
-            # Convert the auth params to a dict
+            
+        elif auth_scheme == 'digest':                       # Convert the auth params to a dict
             items = urllib2.parse_http_list(auth_params)
             auth_map = urllib2.parse_keqv_list(items)
+            
         else:
-            self.logger.debug(u"RequestHandler: Invalid authentication scheme")
+            self.logger.debug(u"RequestHandler: Invalid authentication scheme: {}".format(auth_scheme))
             return False
                 
         self.logger.debug("RequestHandler: auth_map = {}".format(auth_map))
             
         # check username
-        if auth_map["username"] != self.server.user:
+        if auth_map["username"] != indigo.activePlugin.pluginPrefs.get('httpUser', None):
             self.logger.debug("RequestHandler: Username mismatch")
             return False
                 
         if auth_scheme == "basic":
-            if self.server.digestRequired:
+            if indigo.activePlugin.pluginPrefs.get('digestRequired', None):
                 self.logger.debug(u"RequestHandler: {} Authorization not allowed".format(auth_scheme).capitalize())
                 return False
                 
-            if auth_map["password"] == self.server.password:
+            if auth_map["password"] == indigo.activePlugin.pluginPrefs.get('httpPassword', None):
                 self.logger.debug(u"RequestHandler: {} Authorization valid".format(auth_scheme).capitalize())
                 return True
             else:
@@ -88,7 +86,7 @@ class RequestHandler(BaseHTTPRequestHandler):
  
         elif auth_scheme == "digest":
 
-            h1 = hashlib.md5(self.server.user + ":" + REALM + ":" + self.server.password).hexdigest()
+            h1 = hashlib.md5(indigo.activePlugin.pluginPrefs.get('httpUser', None) + ":" + REALM + ":" + indigo.activePlugin.pluginPrefs.get('httpPassword', None)).hexdigest()
             h2 = hashlib.md5(method + ":" + auth_map["uri"]).hexdigest()
             rs = h1 + ":" + auth_map["nonce"] + ":" + auth_map["nc"] + ":" + auth_map["cnonce"] + ":" + auth_map["qop"] + ":" + h2
             if hashlib.md5(rs).hexdigest() == auth_map["response"]:
@@ -108,14 +106,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         client_host, client_port = self.client_address
         self.logger.debug("RequestHandler: POST from %s:%s to %s" % (str(client_host), str(client_port), self.path))
         
-        auth_header = self.headers.getheader('Authorization')        
-        if auth_header == None:
-            self.logger.debug("RequestHandler: Request has no Authorization header")
-            self.send_reply(401)
-            return
-                            
-        if not self.authorized(auth_header, "POST"):
-            self.logger.debug(u"RequestHandler: Request failed {} Authorization".format(auth_scheme).capitalize())
+        if not self.authorized("POST"):
             self.send_reply(401)
             return
                        
@@ -186,14 +177,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         client_host, client_port = self.client_address
         self.logger.debug("RequestHandler: GET from %s:%s for %s" % (str(client_host), str(client_port), self.path))
 
-        auth_header = self.headers.getheader('Authorization')
-
-        if auth_header == None:
-            self.logger.debug("RequestHandler: Request has no Authorization header")
-            self.send_reply(401)
-
-        if not self.authorized(auth_header, "GET"):
-            self.logger.debug(u"RequestHandler: Request failed {} Authorization".format(auth_scheme).capitalize())
+        if not self.authorized("GET"):
             self.send_reply(401)
             return
 
@@ -203,8 +187,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             query = parse_qs(request.query)
             for key in query:
                 value = query[key][0]
-                self.logger.debug(u"RequestHandler: setting variable httpd_%s to '%s'" % (key, value))
-                updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
+                newvar = "httpd_"+key
+                self.logger.debug(u"RequestHandler: setting variable {} to '{}'".format(newvar, value))
+                updateVar(newvar, value, indigo.activePlugin.pluginPrefs["folderId"])
 
         else:
             self.logger.debug(u"RequestHandler: Unknown request: %s" % request.path)
@@ -250,9 +235,13 @@ class Plugin(indigo.PluginBase):
         self.httpd  = self.start_server(self.httpPort)
         self.httpsd = self.start_server(self.httpsPort, https=True)
         
-        
+        indigo.server.subscribeToBroadcast("com.flyingdiver.indigoplugin.httpd", u"httpd_webhook-httpd", "webHook")       
+
     def shutdown(self):
         indigo.server.log(u"Shutting down HTTPd")
+
+    def webHook(self, hookData):
+        self.logger.debug(u"webHook received:\n{}".format(hookData))
 
 
     def start_server(self, port, https=False):
@@ -267,15 +256,12 @@ class Plugin(indigo.PluginBase):
            
         if port > 0:
             try:
-                server = MyHTTPServer(("", port), RequestHandler)
+                server = HTTPServer(("", port), RequestHandler)
+                server.timeout = 1.0
             except:
                 self.logger.error(u"Unable to open port %d for HTTP Server" % port)
                 return None
             
-            server.timeout = 1.0
-            server.setUser(self.pluginPrefs.get('httpUser', 'username'))
-            server.setPassword(self.pluginPrefs.get('httpPassword', 'password'))
-            server.setDigestRequired(self.pluginPrefs.get('digestRequired', False))
         else:
             return None
             
@@ -375,6 +361,21 @@ class Plugin(indigo.PluginBase):
 
 
     ########################################
-    # Menu Methods
+    # Actions
     ########################################
 
+    def getWebhookInfo(self, pluginAction, dev, callerWaitingForResult):
+
+        ddnsName = self.pluginPrefs.get('ddnsName', None)
+        if not ddnsName:
+            return None
+            
+        info = {}
+        port = int(self.pluginPrefs.get('httpPort', 0))
+        if port:
+            info[u"http"] = "http://{}:{}".format(ddnsName, port)
+        port = int(self.pluginPrefs.get('httpsPort', 0))
+        if port:
+            info[u"https"] = "https://{}:{}".format(ddnsName, port)
+            
+        return info

@@ -1,4 +1,8 @@
 <?xml version="1.0"?>
 <Actions>
 	<SupportURL>http://forums.indigodomo.com/viewforum.php?f=216</SupportURL>
+    <Action id="getWebhookInfo" uiPath="hidden">
+        <Name>Get Webhook Info</Name>
+        <CallbackMethod>getWebhookInfo</CallbackMethod>
+    </Action>
 </Actions>
