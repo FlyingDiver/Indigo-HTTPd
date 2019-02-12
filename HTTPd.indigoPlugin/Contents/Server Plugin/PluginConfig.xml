@@ -19,14 +19,26 @@
     <Field type="checkbox" id="digestRequired" defaultValue="false">
         <Label>Require Digest Authentication:</Label>
     </Field>            
-    <Field id="sep1" type="separator"/>
+	<Field id="certfileName" type="textfield"  defaultValue="httpd_server.pem">
+		<Label>Certificate File:</Label>
+	</Field>
+    <Field id="certfileNameNote" type="label" fontSize="small" fontColor="darkgray">
+        <Label>Required for HTTPS.  File must be located in the Indigo directory.</Label>
+    </Field>    
+	<Field id="keyfileName" type="textfield"  defaultValue="">
+		<Label>Private Key File:</Label>
+	</Field>
+    <Field id="keyfileNameNote" type="label" fontSize="small" fontColor="darkgray">
+        <Label>Optional.  Needed for official certificate files, not self-signed certificates.</Label>
+    </Field>    
+    <Field id="sep2" type="separator"/>
 	<Field id="ddnsName" type="textfield"  defaultValue="">
 		<Label>DDNS Name:</Label>
 	</Field>
     <Field id="ddnsNameNote" type="label" fontSize="small" fontColor="darkgray">
         <Label>Optional.  Enter the DDNS name for your router/LAN. This will be used to construct Webhook URLs for plugins/scripts using the HTTPd plugin.</Label>
     </Field>    
-    <Field id="sep2" type="separator"/>
+    <Field id="sep3" type="separator"/>
     <Field id="logLevel" type="menu" defaultValue="20">
         <Label>Event Logging Level:</Label>
         <List>

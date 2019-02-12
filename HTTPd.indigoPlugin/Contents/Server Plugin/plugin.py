@@ -48,6 +48,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         auth_header = self.headers.getheader('Authorization')        
         if auth_header == None:
             self.logger.debug("RequestHandler: Request has no Authorization header")
+            headers = {key:value for (key,value) in self.headers.items()}
+            self.logger.debug("{}".format(headers))
             return False
 
         auth_scheme, auth_params  = auth_header.split(" ", 1)
@@ -160,8 +162,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             except:
                 pass
                 
-            self.logger.debug("POST Broadcast = {}".format(broadcastDict, indent=4, sort_keys=True))
-            indigo.server.broadcastToSubscribers(u"httpd_"+request.path[1:], broadcastDict)
+            broadcast = u"httpd_" + request.path[1:]
+            self.logger.debug("POST Webhook to {} = {}".format(broadcast, broadcastDict, indent=4, sort_keys=True))
+            indigo.server.broadcastToSubscribers(broadcast, broadcastDict)
         
         else:
             self.logger.debug(u"RequestHandler: Unknown request: %s" % request.path)
@@ -191,6 +194,23 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.logger.debug(u"RequestHandler: setting variable {} to '{}'".format(newvar, value))
                 updateVar(newvar, value, indigo.activePlugin.pluginPrefs["folderId"])
 
+        elif request.path.startswith("/webhook"):
+
+            broadcastDict = {}
+            varsDict = {}
+            query = parse_qs(request.query)
+            for key in query:
+                value = query[key][0]
+                varsDict[key] = value
+            broadcastDict["vars"] = varsDict
+
+            broadcastDict["request"] = {"path" : request.path, "command" : self.command, "client" : client_host}
+            broadcastDict["request"]["headers"] = {key:value for (key,value) in self.headers.items()}
+                            
+            broadcast = u"httpd_" + request.path[1:]
+            self.logger.debug("GET Webhook to {} = {}".format(broadcast, broadcastDict, indent=4, sort_keys=True))
+            indigo.server.broadcastToSubscribers(broadcast, broadcastDict)
+        
         else:
             self.logger.debug(u"RequestHandler: Unknown request: %s" % request.path)
 
@@ -209,7 +229,7 @@ class Plugin(indigo.PluginBase):
 
         pfmt = logging.Formatter('%(asctime)s.%(msecs)03d\t[%(levelname)8s] %(name)20s.%(funcName)-25s%(msg)s', datefmt='%Y-%m-%d %H:%M:%S')
         self.plugin_file_handler.setFormatter(pfmt)
-
+        
         try:
             self.logLevel = int(self.pluginPrefs[u"logLevel"])
         except:
@@ -221,8 +241,8 @@ class Plugin(indigo.PluginBase):
     def startup(self):
         indigo.server.log(u"Starting HTTPd")
 
-        self.httpPort = int(self.pluginPrefs.get('httpPort', '5555'))
-        self.httpsPort = int(self.pluginPrefs.get('httpsPort', '0'))
+        self.httpPort = int(self.pluginPrefs.get('httpPort', 0))
+        self.httpsPort = int(self.pluginPrefs.get('httpsPort', 0))
 
         if "HTTPd" in indigo.variables.folders:
             myFolder = indigo.variables.folders["HTTPd"]
@@ -246,33 +266,46 @@ class Plugin(indigo.PluginBase):
 
     def start_server(self, port, https=False):
     
-        server = None
+        if port == 0:
+            return None
 
-        if https:        
-            certfile = indigo.server.getInstallFolderPath() + '/httpd_server.pem'
+        if not https:
+            try:
+                server = HTTPServer(("", port), RequestHandler)
+                server.timeout = 1.0
+                self.logger.debug(u"Started HTTP server on port %d" % port)
+                return server
+                
+            except:
+                self.logger.error(u"Unable to open port %d for HTTP Server" % port)
+                return None
+        
+        else:
+
+            certfile = indigo.server.getInstallFolderPath() + '/' + self.pluginPrefs.get('certfileName', '')
             if not os.path.isfile(certfile):
                 self.logger.error(u"Certificate file missing, unable to start HTTPS server")
                 return None
-           
-        if port > 0:
+
             try:
                 server = HTTPServer(("", port), RequestHandler)
                 server.timeout = 1.0
             except:
                 self.logger.error(u"Unable to open port %d for HTTP Server" % port)
                 return None
+
+            keyfileName = self.pluginPrefs.get('keyfileName', None)
+            if not keyfileName:
+                keyfile = None
+            else:
+                keyfile = indigo.server.getInstallFolderPath() + '/' + keyfileName
+                if not os.path.isfile(keyfile):
+                    self.logger.error(u"Key file missing, unable to start HTTPS server")
+                    return None
             
-        else:
-            return None
-            
-        if https:
-            server.socket = ssl.wrap_socket(server.socket, certfile=certfile, server_side=True)
+            server.socket = ssl.wrap_socket(server.socket, keyfile=keyfile, certfile=certfile, server_side=True)
             self.logger.debug(u"Started HTTPS server on port %d" % port)
-       
-        else:
-            self.logger.debug(u"Started HTTP server on port %d" % port)
-            
-        return server
+            return server
 
 
     def runConcurrentThread(self):
@@ -312,11 +345,11 @@ class Plugin(indigo.PluginBase):
 
     ####################
     def validatePrefsConfigUi(self, valuesDict):
-        self.logger.debug(u"validatePrefsConfigUi called")
+#        self.logger.debug(u"validatePrefsConfigUi called, valuesDict = {}".format(valuesDict))
         errorDict = indigo.Dict()
 
         try:
-            port = int(valuesDict['httpPort'])
+            port = int(valuesDict.get('httpPort', '0'))
         except:
             errorDict['httpPort'] = u"HTTP Port Number invalid"
         else:
@@ -324,7 +357,7 @@ class Plugin(indigo.PluginBase):
                 errorDict['httpPort'] = u"HTTP Port Number invalid"
 
         try:
-            port = int(valuesDict['httpsPort'])
+            port = int(valuesDict.get('httpsPort', 0))
         except:
             errorDict['httpsPort'] = u"HTTPS Port Number invalid"
         else:
@@ -345,37 +378,52 @@ class Plugin(indigo.PluginBase):
             self.indigo_log_handler.setLevel(self.logLevel)
             self.logger.debug(u"logLevel = " + str(self.logLevel))
             
-            if valuesDict['httpPort'] == '0':
+            port = int(valuesDict.get('httpPort', 0))
+            if not port:
                 self.httpd = None
                 self.httpPort = 0
-            elif int(valuesDict['httpPort']) != self.httpPort:
-                self.httpPort = int(valuesDict['httpPort'])
+            elif port != self.httpPort:
+                self.httpPort = port
                 self.httpd = self.start_server(self.httpPort)
             
-            if valuesDict['httpsPort'] == '0':
-                self.httpsd = None
-                self.httpsPort = 0
-            elif int(valuesDict['httpsPort']) != self.httpsPort:
-                self.httpsPort = int(valuesDict['httpsPort'])
+            port = int(valuesDict.get('httpsPort', 0))
+            if not port:
+                self.httpd = None
+                self.httpPort = 0
+            elif port != self.httpsPort:
+                self.httpsPort = port
                 self.httpsd = self.start_server(self.httpsPort, https=True)
-
+            
 
     ########################################
     # Actions
     ########################################
 
-    def getWebhookInfo(self, pluginAction, dev, callerWaitingForResult):
+    def getWebhookInfo(self, pluginAction, device, callerWaitingForResult = True):
 
+        callerName = pluginAction.props.get(u"name", None)
+        if not callerName:
+            self.logger.debug(u"getWebhookInfo failed, caller name not provided")
+
+        info = {u"hook_name" : u"httpd_webhook-" + callerName}
+        
         ddnsName = self.pluginPrefs.get('ddnsName', None)
         if not ddnsName:
             return None
-            
-        info = {}
+        
+        if len(self.pluginPrefs.get('httpPassword', None)) != 0:
+            auth = "{}:{}@".format(self.pluginPrefs.get('httpUser', ''), self.pluginPrefs.get('httpPassword', ''))
+        else:
+            auth = ''
+                    
         port = int(self.pluginPrefs.get('httpPort', 0))
         if port:
-            info[u"http"] = "http://{}:{}".format(ddnsName, port)
+            info[u"http"] = "http://{}{}:{}/webhook-{}".format(auth, ddnsName, port, callerName)
+            
         port = int(self.pluginPrefs.get('httpsPort', 0))
         if port:
-            info[u"https"] = "https://{}:{}".format(ddnsName, port)
-            
+            info[u"https"] = "https://{}{}:{}/webhook-{}".format(auth, ddnsName, port, callerName)
+
+        self.logger.debug(u"getWebhookInfo, info = {}".format(info))
+
         return info
