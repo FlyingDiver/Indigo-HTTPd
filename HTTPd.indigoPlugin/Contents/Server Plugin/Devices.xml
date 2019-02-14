@@ -1,4 +1,23 @@
 <?xml version="1.0"?>
 <Devices>
 	<SupportURL>http://forums.indigodomo.com/viewforum.php?f=216</SupportURL>
+	<Device type="custom" id="proxyDevice">
+		<Name>Webhook Proxy</Name>
+        <ConfigUI>
+            <Field id="dummy" type="checkbox" defaultValue="true" hidden="true" />
+        </ConfigUI>
+		<States>
+			<State id="http">
+				<ValueType>String</ValueType>
+                <TriggerLabel>http URL</TriggerLabel>
+                <ControlPageLabel>http URL</ControlPageLabel>
+			</State>
+			<State id="https">
+				<ValueType>String</ValueType>
+                <TriggerLabel>https URL</TriggerLabel>
+                <ControlPageLabel>https URL</ControlPageLabel>
+			</State>
+		</States>
+	</Device>
 </Devices>
+

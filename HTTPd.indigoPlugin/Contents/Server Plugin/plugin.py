@@ -171,8 +171,6 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         self.send_reply(200)
 
-        indigo.activePlugin.triggerCheck()
-
 
 
     def do_GET(self):
@@ -216,8 +214,6 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         self.send_reply(200)
 
-        indigo.activePlugin.triggerCheck()
-
 
 class Plugin(indigo.PluginBase):
 
@@ -251,17 +247,18 @@ class Plugin(indigo.PluginBase):
         self.pluginPrefs["folderId"] = myFolder.id
 
         self.triggers = {}
-
+        self.proxy_data = {}
+        
         self.httpd  = self.start_server(self.httpPort)
         self.httpsd = self.start_server(self.httpsPort, https=True)
         
         indigo.server.subscribeToBroadcast("com.flyingdiver.indigoplugin.httpd", u"httpd_webhook-httpd", "webHook")       
 
-    def shutdown(self):
-        indigo.server.log(u"Shutting down HTTPd")
-
     def webHook(self, hookData):
         self.logger.debug(u"webHook received:\n{}".format(hookData))
+
+    def shutdown(self):
+        indigo.server.log(u"Shutting down HTTPd")
 
 
     def start_server(self, port, https=False):
@@ -327,25 +324,18 @@ class Plugin(indigo.PluginBase):
     ####################
 
     def triggerStartProcessing(self, trigger):
-        self.logger.debug("Adding Trigger %s (%d) - %s" % (trigger.name, trigger.id, trigger.pluginTypeId))
+        self.logger.debug("Adding Trigger {} ({})".format(trigger.name, trigger.id))
         assert trigger.id not in self.triggers
         self.triggers[trigger.id] = trigger
 
     def triggerStopProcessing(self, trigger):
-        self.logger.debug("Removing Trigger %s (%d)" % (trigger.name, trigger.id))
+        self.logger.debug("Removing Trigger {} ({})".format(trigger.name, trigger.id))
         assert trigger.id in self.triggers
         del self.triggers[trigger.id]
-
-    def triggerCheck(self):
-        for triggerId, trigger in sorted(self.triggers.iteritems()):
-            self.logger.debug("Checking Trigger %s (%s), Type: %s" % (trigger.name, trigger.id, trigger.pluginTypeId))
-            if trigger.pluginTypeId == 'requestReceived':
-                indigo.trigger.execute(trigger)
 
 
     ####################
     def validatePrefsConfigUi(self, valuesDict):
-#        self.logger.debug(u"validatePrefsConfigUi called, valuesDict = {}".format(valuesDict))
         errorDict = indigo.Dict()
 
         try:
@@ -393,18 +383,65 @@ class Plugin(indigo.PluginBase):
             elif port != self.httpsPort:
                 self.httpsPort = port
                 self.httpsd = self.start_server(self.httpsPort, https=True)
-            
+
+
+    def deviceStartComm(self, dev):
+        self.logger.info(u"{}: Starting {} Device {}".format(dev.name, dev.deviceTypeId, dev.id))
+                    
+        if dev.deviceTypeId == 'proxyDevice':
+
+            webhook_info = self.getWebhookInfo(str(dev.id))
+            stateList = [
+                            {'key': 'http',      'value': webhook_info.get("http",None)},
+                            {'key': 'https',     'value': webhook_info.get("https",None)} 
+                        ]
+            dev.updateStatesOnServer(stateList)
+
+            indigo.server.subscribeToBroadcast("com.flyingdiver.indigoplugin.httpd", webhook_info["hook_name"], "webhook_proxy")
+           
+
+    def deviceStopComm(self, dev):
+        self.logger.info(u"{}: Stopping {} Device {}".format( dev.name, dev.deviceTypeId, dev.id))
+
+    def webhook_proxy(self, hook_data):
+
+        proxy_dev = indigo.devices[int(hook_data["request"]["path"][9:])]
+        self.logger.debug(u"webhook_proxy saving hook data for {} ({})".format(proxy_dev.name, proxy_dev.id))
+        self.proxy_data[proxy_dev.id] = hook_data
+
+        for triggerId, trigger in sorted(self.triggers.iteritems()):
+            self.logger.debug("Checking Trigger %s (%s)" % (trigger.name, trigger.id))
+            if trigger.pluginProps["proxyDevice"] == str(proxy_dev.id):
+                self.logger.debug("Executing Trigger %s (%s)" % (trigger.name, trigger.id))
+                indigo.trigger.execute(trigger)
+
+
+
 
     ########################################
     # Actions
     ########################################
 
-    def getWebhookInfo(self, pluginAction, device, callerWaitingForResult = True):
+    def getWebhookDataAction(self, pluginAction, device, callerWaitingForResult = True):
 
-        callerName = pluginAction.props.get(u"name", None)
+        try:
+            hook_data = self.proxy_data[device.id]
+            return hook_data
+        except:
+            return None
+
+
+    def getWebhookInfoAction(self, pluginAction, device, callerWaitingForResult = True):
+
+        return self.getWebhookInfo(pluginAction.props.get(u"name", None))
+        
+
+    def getWebhookInfo(self, callerName):
+
         if not callerName:
             self.logger.debug(u"getWebhookInfo failed, caller name not provided")
-
+            return None
+            
         info = {u"hook_name" : u"httpd_webhook-" + callerName}
         
         ddnsName = self.pluginPrefs.get('ddnsName', None)

@@ -2,7 +2,13 @@
 <Events>
 	<SupportURL>http://forums.indigodomo.com/viewforum.php?f=216</SupportURL>
     <Event id="requestReceived">
-        <Name>HTTP Request Received</Name>
+        <Name>Proxy Request Received</Name>
+		<ConfigUI>
+        	<Field id="proxyDevice" type="menu">
+            	<Label>Proxy Device:</Label>
+            	<List class="indigo.devices" filter="self.proxyDevice" />
+			</Field>
+		</ConfigUI>
     </Event>
 </Events>
 
