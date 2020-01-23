@@ -1,37 +1,6 @@
 <?xml version="1.0"?>
 <PluginConfig>
 	<SupportURL>http://forums.indigodomo.com/viewforum.php?f=216</SupportURL>
-	<Field id="httpPort" type="textfield"  defaultValue="5555">
-		<Label>HTTP Port Number:</Label>
-	</Field>
-	<Field id="httpsPort" type="textfield"  defaultValue="0">
-		<Label>HTTPS Port Number:</Label>
-	</Field>
-    <Field id="portNote" type="label" fontSize="small" fontColor="darkgray">
-        <Label>Enter a port number to enable that protocol.  Entering zero for the port number will disable that protocol.  The port numbers cannot be the same. See the plugin Wiki on GitHub for additional steps required to use the HTTPS protocol.</Label>
-    </Field>
-	<Field id="httpUser" type="textfield" defaultValue="username">
-		<Label>Username:</Label>
-	</Field>
-	<Field id="httpPassword" type="textfield" defaultValue="password">
-		<Label>Password:</Label>
-	</Field>
-    <Field type="checkbox" id="digestRequired" defaultValue="false">
-        <Label>Require Digest Authentication:</Label>
-    </Field>            
-	<Field id="certfileName" type="textfield"  defaultValue="httpd_server.pem">
-		<Label>Certificate File:</Label>
-	</Field>
-    <Field id="certfileNameNote" type="label" fontSize="small" fontColor="darkgray">
-        <Label>Required for HTTPS.  File must be located in the Indigo directory.</Label>
-    </Field>    
-	<Field id="keyfileName" type="textfield"  defaultValue="">
-		<Label>Private Key File:</Label>
-	</Field>
-    <Field id="keyfileNameNote" type="label" fontSize="small" fontColor="darkgray">
-        <Label>Optional.  Needed for official certificate files, not self-signed certificates.</Label>
-    </Field>    
-    <Field id="sep2" type="separator"/>
 	<Field id="ddnsName" type="textfield"  defaultValue="">
 		<Label>DDNS Name:</Label>
 	</Field>

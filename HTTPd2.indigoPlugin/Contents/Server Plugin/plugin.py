@@ -9,6 +9,7 @@ import ssl
 import os.path
 import hashlib
 import time
+import threading
 
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 from urlparse import urlparse, parse_qs
@@ -354,36 +355,25 @@ class Plugin(indigo.PluginBase):
             except:
                 self.logLevel = logging.INFO
             self.indigo_log_handler.setLevel(self.logLevel)
-            self.logger.debug(u"logLevel = " + str(self.logLevel))
+            self.logger.debug(u"logLevel = {}".format(self.logLevel))
             
-            port = int(valuesDict.get('httpPort', 0))
-            if not port:
-                self.httpd = None
-                self.httpPort = 0
-            elif port != self.httpPort:
-                self.httpPort = port
-                self.httpd = self.start_server(self.httpPort)
-            
-            port = int(valuesDict.get('httpsPort', 0))
-            if not port:
-                self.httpd = None
-                self.httpPort = 0
-            elif port != self.httpsPort:
-                self.httpsPort = port
-                self.httpsd = self.start_server(self.httpsPort, https=True)
-
     ########################################
     def validateDeviceConfigUi(self, valuesDict, typeId, devId):
         errorsDict = indigo.Dict()
 
-        if dev.deviceTypeId == 'serverDevice':
+        if typeId == 'serverDevice':
             try:
                 port = int(valuesDict.get('address', '0'))
             except:
-                errorDict['address'] = u"HTTP Port Number invalid"
+                errorsDict['address'] = u"HTTP Port Number invalid"
             else:
                 if port < 1024:
-                    errorDict['address'] = u"HTTP Port Number invalid"
+                    errorsDict['address'] = u"HTTP Port Number invalid"
+                    
+            if valuesDict.get('protocol', 'http') == 'https':
+                certfile = indigo.server.getInstallFolderPath() + '/' + valuesDict.get('certfileName', "")
+                if not os.path.isfile(certfile):
+                    errorsDict['certfileName'] = u"Certificate file required for HTTPS protocol"
 
         if len(errorsDict) > 0:
             return (False, valuesDict, errorsDict)
@@ -427,13 +417,15 @@ class Plugin(indigo.PluginBase):
 
         if dev.deviceTypeId == 'serverDevice':
             server = self.servers[dev.id]
-            server.server_close()
             del self.servers[dev.id]
+            assassin = threading.Thread(target=server.server_close)
+            assassin.daemon = True
+            assassin.start()            
             
         elif dev.deviceTypeId == 'proxyDevice':
 
             webhook_info = self.getWebhookInfo(str(dev.id))
-            indigo.server.subscribeToBroadcast("com.flyingdiver.indigoplugin.httpd", webhook_info["hook_name"], None)
+            indigo.server.subscribeToBroadcast("com.flyingdiver.indigoplugin.httpd", webhook_info["hook_name"], "CallbackNOP")
            
 
     ########################################
@@ -443,7 +435,7 @@ class Plugin(indigo.PluginBase):
     ########################################
     def getDeviceStateList(self, device):
         state_list = indigo.PluginBase.getDeviceStateList(self, device)
-        self.logger.debug(u"{}: getDeviceStateList, base state_list = {}".format(device.name, state_list))
+        self.logger.threaddebug(u"{}: getDeviceStateList, base state_list = {}".format(device.name, state_list))
         
         if device.id in self.servers:
 
@@ -459,7 +451,7 @@ class Plugin(indigo.PluginBase):
             except:
                 pass
                 
-        self.logger.debug(u"{}: getDeviceStateList, final state_list = {}".format(device.name, state_list))
+        self.logger.threaddebug(u"{}: getDeviceStateList, final state_list = {}".format(device.name, state_list))
         return state_list
 
 
@@ -475,7 +467,8 @@ class Plugin(indigo.PluginBase):
                 self.logger.debug("Executing Trigger %s (%s)" % (trigger.name, trigger.id))
                 indigo.trigger.execute(trigger)
 
-
+    def CallbackNOP(self, hook_data):
+        pass
 
 
     ########################################

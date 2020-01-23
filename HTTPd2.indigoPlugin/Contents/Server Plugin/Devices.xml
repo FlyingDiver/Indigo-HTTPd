@@ -22,7 +22,7 @@
             <Field id="digestRequired" type="checkbox" defaultValue="false">
                 <Label>Require Digest Authentication:</Label>
             </Field>            
-            <Field id="certfileName" type="textfield"  defaultValue="httpd_server.pem">
+            <Field id="certfileName" type="textfield"  defaultValue="">
                 <Label>Certificate File:</Label>
             </Field>
             <Field id="certfileNameNote" type="label" fontSize="small" fontColor="darkgray">
