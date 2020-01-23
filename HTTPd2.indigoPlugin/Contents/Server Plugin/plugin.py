@@ -14,22 +14,34 @@ from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 from urlparse import urlparse, parse_qs
 import urllib2
 
+import indigo
+
 REALM = "HTTPd Plugin"
 
 ########################################
 
-def updateVar(name, value, folder):
-    if name not in indigo.variables:
-        indigo.variable.create(name, value=value, folder=folder)
-    else:
-        indigo.variable.updateValue(name, value)
+class MyHTTPServer(HTTPServer):
 
-class RequestHandler(BaseHTTPRequestHandler):
+    def set_auth_params(self, httpUser, httpPassword, digestRequired):
+        self.logger = logging.getLogger("Plugin.MyHTTPServer")
+        self.httpUser = httpUser
+        self.httpPassword = httpPassword
+        self.digestRequired = bool(digestRequired)
+        self.logger.debug("MyHTTPServer, username = {}, password = {}, digest = {}".format(self.httpUser, self.httpPassword, self.digestRequired))
+        
+    def set_dev_id(self, devID):
+        self.devID = devID
+        self.logger.debug("MyHTTPServer, devID = {}".format(self.devID))
+        
+    def set_state_list(self, state_list):
+        self.state_list = state_list
+    
+class MyRequestHandler(BaseHTTPRequestHandler):
 
     def send_reply(self, code):
 
         nonce = hashlib.md5("{}:{}".format(time.time(), REALM)).hexdigest() 
-        if indigo.activePlugin.pluginPrefs.get('digestRequired', None):
+        if self.server.digestRequired:
             authHeader = 'Digest realm="{}", nonce="{}", algorithm="MD5", qop="auth"'.format(REALM, nonce)
         else:
             authHeader = 'Digest realm="{}", nonce="{}", algorithm="MD5", qop="auth" Basic realm="{}"'.format(REALM, nonce, REALM)
@@ -39,15 +51,15 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-type", "text/html")
         self.end_headers()
     
-    def authorized(self, method):
+    def is_authorized(self, method):
 
-        if len(indigo.activePlugin.pluginPrefs.get('httpPassword', None)) == 0:    # no authentication needed
-            self.logger.debug("RequestHandler: No password specified in plugin preferences, skipping authentication")
+        if len(self.server.httpPassword) == 0:    # no authentication needed
+            self.logger.debug("MyRequestHandler: No password specified in device configuration, skipping authentication")
             return True
             
         auth_header = self.headers.getheader('Authorization')        
         if auth_header == None:
-            self.logger.debug("RequestHandler: Request has no Authorization header")
+            self.logger.debug("MyRequestHandler: Request has no Authorization header")
             headers = {key:value for (key,value) in self.headers.items()}
             self.logger.debug("{}".format(headers))
             return False
@@ -64,62 +76,73 @@ class RequestHandler(BaseHTTPRequestHandler):
             auth_map = urllib2.parse_keqv_list(items)
             
         else:
-            self.logger.debug(u"RequestHandler: Invalid authentication scheme: {}".format(auth_scheme))
+            self.logger.debug(u"MyRequestHandler: Invalid authentication scheme: {}".format(auth_scheme))
             return False
                 
-        self.logger.debug("RequestHandler: auth_map = {}".format(auth_map))
+        self.logger.debug("MyRequestHandler: auth_map = {}".format(auth_map))
             
         # check username
-        if auth_map["username"] != indigo.activePlugin.pluginPrefs.get('httpUser', None):
-            self.logger.debug("RequestHandler: Username mismatch")
+        if auth_map["username"] != self.server.httpUser:
+            self.logger.debug("MyRequestHandler: Username mismatch")
             return False
                 
         if auth_scheme == "basic":
-            if indigo.activePlugin.pluginPrefs.get('digestRequired', None):
-                self.logger.debug(u"RequestHandler: {} Authorization not allowed".format(auth_scheme).capitalize())
+            if self.server.digestRequired:
+                self.logger.debug(u"MyRequestHandler: {} Authorization not allowed".format(auth_scheme).capitalize())
                 return False
                 
-            if auth_map["password"] == indigo.activePlugin.pluginPrefs.get('httpPassword', None):
-                self.logger.debug(u"RequestHandler: {} Authorization valid".format(auth_scheme).capitalize())
+            if auth_map["password"] == self.server.httpPassword:
+                self.logger.debug(u"MyRequestHandler: {} Authorization valid".format(auth_scheme).capitalize())
                 return True
             else:
-                self.logger.debug(u"RequestHandler: {} Authorization failed".format(auth_scheme).capitalize())
+                self.logger.debug(u"MyRequestHandler: {} Authorization failed".format(auth_scheme).capitalize())
                 return False
  
         elif auth_scheme == "digest":
 
-            h1 = hashlib.md5(indigo.activePlugin.pluginPrefs.get('httpUser', None) + ":" + REALM + ":" + indigo.activePlugin.pluginPrefs.get('httpPassword', None)).hexdigest()
+            h1 = hashlib.md5(self.server.httpUser + ":" + REALM + ":" + self.server.httpPassword).hexdigest()
             h2 = hashlib.md5(method + ":" + auth_map["uri"]).hexdigest()
             rs = h1 + ":" + auth_map["nonce"] + ":" + auth_map["nc"] + ":" + auth_map["cnonce"] + ":" + auth_map["qop"] + ":" + h2
             if hashlib.md5(rs).hexdigest() == auth_map["response"]:
-                self.logger.debug(u"RequestHandler: {} Authorization valid".format(auth_scheme).capitalize())
+                self.logger.debug(u"MyRequestHandler: {} Authorization valid".format(auth_scheme).capitalize())
                 return True
             else:
-                self.logger.debug(u"RequestHandler: {} Authorization failed".format(auth_scheme).capitalize())
+                self.logger.debug(u"MyRequestHandler: {} Authorization failed".format(auth_scheme).capitalize())
                 return False
 
         else:
-            self.logger.debug(u"RequestHandler: {} Authorization invalid".format(auth_scheme).capitalize())
+            self.logger.debug(u"MyRequestHandler: {} Authorization invalid".format(auth_scheme).capitalize())
             return False
 
+    def do_setvar(self, request):      
+        query = parse_qs(request.query)
+        state_list = []
+        for key in query:
+            value = query[key][0]
+            self.logger.debug(u"MyRequestHandler: setting state {} to '{}'".format(key, value))
+            state_list.append({'key': unicode(key), 'value': value})
+                    
+        device = indigo.devices[self.server.devID]
+        self.logger.debug(u"MyRequestHandler: updating device {} (port {})".format(device.name, device.address))
+
+        self.server.set_state_list(state_list)
+        device.stateListOrDisplayStateIdChanged()
+        device.updateStatesOnServer(state_list)
 
     def do_POST(self):
-        self.logger = logging.getLogger("Plugin.RequestHandler")
+        self.logger = logging.getLogger("Plugin.MyRequestHandler")
         client_host, client_port = self.client_address
-        self.logger.debug("RequestHandler: POST from %s:%s to %s" % (str(client_host), str(client_port), self.path))
+        port = self.server.socket.getsockname()[1]
+        self.logger.debug("MyRequestHandler: POST to port {} from {}:{} for {}".format(port, client_host, client_port, self.path))
         
-        if not self.authorized("POST"):
+        if not self.is_authorized("POST"):
             self.send_reply(401)
             return
                        
         request = urlparse(self.path)
 
         if request.path == "/setvar":
-            query = parse_qs(request.query)
-            for key in query:
-                value = query[key][0]
-                self.logger.debug(u"RequestHandler: setting variable httpd_%s to '%s'" % (key, value))
-                updateVar("httpd_"+key, value, indigo.activePlugin.pluginPrefs["folderId"])
+            self.do_setvar(request)
 
         elif request.path == "/broadcast":
 
@@ -167,30 +190,26 @@ class RequestHandler(BaseHTTPRequestHandler):
             indigo.server.broadcastToSubscribers(broadcast, broadcastDict)
         
         else:
-            self.logger.debug(u"RequestHandler: Unknown request: %s" % request.path)
+            self.logger.debug(u"MyRequestHandler: Unknown POST request: {}".format(request.path))
 
         self.send_reply(200)
 
 
 
     def do_GET(self):
-        self.logger = logging.getLogger("Plugin.RequestHandler")
+        self.logger = logging.getLogger("Plugin.MyRequestHandler")
         client_host, client_port = self.client_address
-        self.logger.debug("RequestHandler: GET from %s:%s for %s" % (str(client_host), str(client_port), self.path))
+        port = self.server.socket.getsockname()[1]
+        self.logger.debug("MyRequestHandler: GET to port {} from {}:{} for {}".format(port, client_host, client_port, self.path))
 
-        if not self.authorized("GET"):
+        if not self.is_authorized("GET"):
             self.send_reply(401)
             return
 
         request = urlparse(self.path)
 
         if request.path == "/setvar":
-            query = parse_qs(request.query)
-            for key in query:
-                value = query[key][0]
-                newvar = "httpd_"+key
-                self.logger.debug(u"RequestHandler: setting variable {} to '{}'".format(newvar, value))
-                updateVar(newvar, value, indigo.activePlugin.pluginPrefs["folderId"])
+            self.do_setvar(request)
 
         elif request.path.startswith("/webhook"):
 
@@ -210,7 +229,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             indigo.server.broadcastToSubscribers(broadcast, broadcastDict)
         
         else:
-            self.logger.debug(u"RequestHandler: Unknown request: %s" % request.path)
+            self.logger.debug(u"MyRequestHandler: Unknown GET request: {}".format(request.path))
 
         self.send_reply(200)
 
@@ -231,26 +250,15 @@ class Plugin(indigo.PluginBase):
         except:
             self.logLevel = logging.INFO
         self.indigo_log_handler.setLevel(self.logLevel)
-        self.logger.debug(u"logLevel = " + str(self.logLevel))
+        self.logger.debug(u"logLevel = {}".format(self.logLevel))
 
 
     def startup(self):
         indigo.server.log(u"Starting HTTPd")
 
-        self.httpPort = int(self.pluginPrefs.get('httpPort', 0))
-        self.httpsPort = int(self.pluginPrefs.get('httpsPort', 0))
-
-        if "HTTPd" in indigo.variables.folders:
-            myFolder = indigo.variables.folders["HTTPd"]
-        else:
-            myFolder = indigo.variables.folder.create("HTTPd")
-        self.pluginPrefs["folderId"] = myFolder.id
-
+        self.servers = {}
         self.triggers = {}
         self.proxy_data = {}
-        
-        self.httpd  = self.start_server(self.httpPort)
-        self.httpsd = self.start_server(self.httpsPort, https=True)
         
         indigo.server.subscribeToBroadcast("com.flyingdiver.indigoplugin.httpd", u"httpd_webhook-httpd", "webHook")       
 
@@ -261,47 +269,46 @@ class Plugin(indigo.PluginBase):
         indigo.server.log(u"Shutting down HTTPd")
 
 
-    def start_server(self, port, https=False):
+    def start_server(self, port, https=False, certfileName=None, keyfileName=None):
     
         if port == 0:
             return None
 
         if not https:
             try:
-                server = HTTPServer(("", port), RequestHandler)
+                server = MyHTTPServer(("", port), MyRequestHandler)
                 server.timeout = 1.0
-                self.logger.debug(u"Started HTTP server on port %d" % port)
+                self.logger.debug(u"Started HTTP server on port {}".format(port))
                 return server
                 
             except:
-                self.logger.error(u"Unable to open port %d for HTTP Server" % port)
+                self.logger.error(u"Unable to open port {} for HTTP Server".format(port))
                 return None
         
         else:
 
-            certfile = indigo.server.getInstallFolderPath() + '/' + self.pluginPrefs.get('certfileName', '')
+            certfile = indigo.server.getInstallFolderPath() + '/' + certfileName
             if not os.path.isfile(certfile):
-                self.logger.error(u"Certificate file missing, unable to start HTTPS server")
+                self.logger.error(u"Certificate file missing, unable to start HTTPS server on port {}".format(port))
                 return None
 
             try:
-                server = HTTPServer(("", port), RequestHandler)
+                server = MyHTTPServer(("", port), MyRequestHandler)
                 server.timeout = 1.0
             except:
-                self.logger.error(u"Unable to open port %d for HTTP Server" % port)
+                self.logger.error(u"Unable to open port {} for HTTPS Server".format(port))
                 return None
 
-            keyfileName = self.pluginPrefs.get('keyfileName', None)
             if not keyfileName:
                 keyfile = None
             else:
                 keyfile = indigo.server.getInstallFolderPath() + '/' + keyfileName
                 if not os.path.isfile(keyfile):
-                    self.logger.error(u"Key file missing, unable to start HTTPS server")
+                    self.logger.error(u"Key file missing, unable to start HTTPS server on port {}".format(port))
                     return None
             
             server.socket = ssl.wrap_socket(server.socket, keyfile=keyfile, certfile=certfile, server_side=True)
-            self.logger.debug(u"Started HTTPS server on port %d" % port)
+            self.logger.debug(u"Started HTTPS server on port {}".format(port))
             return server
 
 
@@ -310,10 +317,8 @@ class Plugin(indigo.PluginBase):
         try:
             while True:
 
-                if self.httpd:
-                    self.httpd.handle_request()
-                if self.httpsd:
-                    self.httpsd.handle_request()
+                for server in self.servers.values():
+                    server.handle_request()
 
                 self.sleep(0.1)
 
@@ -337,23 +342,6 @@ class Plugin(indigo.PluginBase):
     ####################
     def validatePrefsConfigUi(self, valuesDict):
         errorDict = indigo.Dict()
-
-        try:
-            port = int(valuesDict.get('httpPort', '0'))
-        except:
-            errorDict['httpPort'] = u"HTTP Port Number invalid"
-        else:
-            if 0 < port < 1024:
-                errorDict['httpPort'] = u"HTTP Port Number invalid"
-
-        try:
-            port = int(valuesDict.get('httpsPort', 0))
-        except:
-            errorDict['httpsPort'] = u"HTTPS Port Number invalid"
-        else:
-            if 0 < port < 1024:
-                errorDict['httpsPort'] = u"HTTPS Port Number invalid"
-
         if len(errorDict) > 0:
             return (False, valuesDict, errorDict)
         return (True, valuesDict)
@@ -384,11 +372,43 @@ class Plugin(indigo.PluginBase):
                 self.httpsPort = port
                 self.httpsd = self.start_server(self.httpsPort, https=True)
 
+    ########################################
+    def validateDeviceConfigUi(self, valuesDict, typeId, devId):
+        errorsDict = indigo.Dict()
+
+        if dev.deviceTypeId == 'serverDevice':
+            try:
+                port = int(valuesDict.get('address', '0'))
+            except:
+                errorDict['address'] = u"HTTP Port Number invalid"
+            else:
+                if port < 1024:
+                    errorDict['address'] = u"HTTP Port Number invalid"
+
+        if len(errorsDict) > 0:
+            return (False, valuesDict, errorsDict)
+        return (True, valuesDict)
+
 
     def deviceStartComm(self, dev):
         self.logger.info(u"{}: Starting {} Device {}".format(dev.name, dev.deviceTypeId, dev.id))
                     
-        if dev.deviceTypeId == 'proxyDevice':
+        if dev.deviceTypeId == 'serverDevice':
+            port = int(dev.address)
+            https = dev.pluginProps.get('protocol', 'http') == 'https'
+            certfile = dev.pluginProps.get('certfileName', None)
+            keyfile = dev.pluginProps.get('keyfileName', None)
+            
+            server = self.start_server(port, https=https, certfileName=certfile, keyfileName=keyfile)
+            if server:
+                digestRequired = dev.pluginProps.get('digestRequired', False)
+                httpUser = dev.pluginProps.get('httpUser', None)
+                httpPassword = dev.pluginProps.get('httpPassword', None)
+                server.set_auth_params(httpUser, httpPassword, digestRequired)
+                server.set_dev_id(dev.id)
+                self.servers[dev.id] =  server
+            
+        elif dev.deviceTypeId == 'proxyDevice':
 
             webhook_info = self.getWebhookInfo(str(dev.id))
             stateList = [
@@ -398,10 +418,50 @@ class Plugin(indigo.PluginBase):
             dev.updateStatesOnServer(stateList)
 
             indigo.server.subscribeToBroadcast("com.flyingdiver.indigoplugin.httpd", webhook_info["hook_name"], "webhook_proxy")
-           
+
+        dev.stateListOrDisplayStateIdChanged()
+
 
     def deviceStopComm(self, dev):
         self.logger.info(u"{}: Stopping {} Device {}".format( dev.name, dev.deviceTypeId, dev.id))
+
+        if dev.deviceTypeId == 'serverDevice':
+            server = self.servers[dev.id]
+            server.server_close()
+            del self.servers[dev.id]
+            
+        elif dev.deviceTypeId == 'proxyDevice':
+
+            webhook_info = self.getWebhookInfo(str(dev.id))
+            indigo.server.subscribeToBroadcast("com.flyingdiver.indigoplugin.httpd", webhook_info["hook_name"], None)
+           
+
+    ########################################
+    #
+    # callback for state list changes, called from stateListOrDisplayStateIdChanged()
+    #
+    ########################################
+    def getDeviceStateList(self, device):
+        state_list = indigo.PluginBase.getDeviceStateList(self, device)
+        self.logger.debug(u"{}: getDeviceStateList, base state_list = {}".format(device.name, state_list))
+        
+        if device.id in self.servers:
+
+            try:
+                device_states = self.servers[device.id].state_list
+                if device_states and len(device_states) > 0:
+                    for item in device_states:
+                        key = item['key']
+                        value = item['value']
+                        new_state = self.getDeviceStateDictForStringType(unicode(key), unicode(key), unicode(key))
+                        self.logger.threaddebug(u"{}: getDeviceStateList, adding String state {}, value {}".format(device.name, key, value))
+                        state_list.append(new_state)
+            except:
+                pass
+                
+        self.logger.debug(u"{}: getDeviceStateList, final state_list = {}".format(device.name, state_list))
+        return state_list
+
 
     def webhook_proxy(self, hook_data):
 

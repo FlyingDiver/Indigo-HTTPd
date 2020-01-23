@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<Devices>
+	<Device type="custom" id="serverDevice">
+		<Name>HTTP/HTTPS Server</Name>
+        <ConfigUI>
+        	<Field id="protocol" type="menu" defaultValue="http">
+        		<Label>Protocol:</Label>
+        		<List>
+        			<Option value="http">HTTP</Option>
+        			<Option value="https">HTTPS</Option>
+        		</List>
+        	</Field>
+            <Field id="address" type="textfield"  defaultValue="5555">
+                <Label>HTTP/HTTPS Port Number:</Label>
+            </Field>
+            <Field id="httpUser" type="textfield" defaultValue="username">
+                <Label>Username:</Label>
+            </Field>
+            <Field id="httpPassword" type="textfield" defaultValue="password">
+                <Label>Password:</Label>
+            </Field>
+            <Field id="digestRequired" type="checkbox" defaultValue="false">
+                <Label>Require Digest Authentication:</Label>
+            </Field>            
+            <Field id="certfileName" type="textfield"  defaultValue="httpd_server.pem">
+                <Label>Certificate File:</Label>
+            </Field>
+            <Field id="certfileNameNote" type="label" fontSize="small" fontColor="darkgray">
+                <Label>Required for HTTPS.  File must be located in the base Indigo directory.</Label>
+            </Field>    
+            <Field id="keyfileName" type="textfield"  defaultValue="">
+                <Label>Private Key File:</Label>
+            </Field>
+            <Field id="keyfileNameNote" type="label" fontSize="small" fontColor="darkgray">
+                <Label>Optional.  Needed for official certificate files, not self-signed certificates.</Label>
+            </Field>    
+        </ConfigUI>
+		<States>
+            <State id="status">
+                <ValueType>String</ValueType>
+                <TriggerLabel>UI Status</TriggerLabel>
+                <ControlPageLabel>UI Status</ControlPageLabel>
+            </State>        
+        </States>
+        <UiDisplayStateId>status</UiDisplayStateId>
+	</Device>
+
+	<Device type="custom" id="proxyDevice">
+		<Name>Webhook Proxy</Name>
+        <ConfigUI>
+            <Field id="dummy" type="checkbox" defaultValue="true" hidden="true" />
+        </ConfigUI>
+		<States>
+			<State id="http">
+				<ValueType>String</ValueType>
+                <TriggerLabel>http URL</TriggerLabel>
+                <ControlPageLabel>http URL</ControlPageLabel>
+			</State>
+			<State id="https">
+				<ValueType>String</ValueType>
+                <TriggerLabel>https URL</TriggerLabel>
+                <ControlPageLabel>https URL</ControlPageLabel>
+			</State>
+		</States>
+	</Device>
+</Devices>
+

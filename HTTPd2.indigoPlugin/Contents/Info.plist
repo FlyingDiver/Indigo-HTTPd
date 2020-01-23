@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
 	<key>PluginVersion</key>
-	<string>1.4.2</string>
+	<string>2.0.0</string>
 	<key>ServerApiVersion</key>
 	<string>2.0</string>
 	<key>IwsApiVersion</key>
 	<string>1.0.0</string>
 	<key>CFBundleName</key>
-	<string>HTTPd</string>
+	<string>HTTPd 2</string>
 	<key>CFBundleDisplayName</key>
-	<string>HTTPd</string>
+	<string>HTTPd 2</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.flyingdiver.indigoplugin.httpd</string>
+	<string>com.flyingdiver.indigoplugin.httpd2</string>
 	<key>CFBundleVersion</key>
 	<string>1.0.0</string>
 	<key>CFBundleURLTypes</key>
